@@ -1,0 +1,16 @@
+# dependencies
+node_modules/
+
+# build artifacts
+vscode-extension/engine/
+*.vsix
+
+# generated at runtime
+white_hat_memory.md
+*.log
+
+# local tooling / editor
+.claude/
+.claude-flow/
+.vscode/
+.DS_Store

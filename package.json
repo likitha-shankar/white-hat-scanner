@@ -1,0 +1,18 @@
+{
+  "name": "white-hat",
+  "version": "0.1.0",
+  "description": "White-box static security analysis engine (Mode 2). Proves findings, emits remediation diffs.",
+  "type": "commonjs",
+  "bin": {
+    "white-hat": "src/index.js"
+  },
+  "scripts": {
+    "scan": "node src/index.js",
+    "demo": "node demo/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@babel/parser": "^7.25.0",
+    "@babel/traverse": "^7.25.0"
+  }
+}
