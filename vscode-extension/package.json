@@ -1,0 +1,52 @@
+{
+  "name": "white-hat-vscode",
+  "displayName": "White Hat Security",
+  "description": "White-box static security analysis (Mode 2) with proven findings and click-to-apply remediations.",
+  "version": "0.1.0",
+  "publisher": "white-hat",
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["Linters", "Other"],
+  "activationEvents": [],
+  "main": "./extension.js",
+  "scripts": {
+    "bundle": "node bundle.js",
+    "vscode:prepublish": "node bundle.js"
+  },
+  "dependencies": {
+    "@babel/parser": "^7.25.0",
+    "@babel/traverse": "^7.25.0"
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "whiteHat",
+          "title": "White Hat",
+          "icon": "media/shield.svg"
+        }
+      ]
+    },
+    "views": {
+      "whiteHat": [
+        {
+          "id": "whiteHat.findings",
+          "name": "Findings",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      { "command": "whiteHat.scan", "title": "White Hat: Scan Workspace" }
+    ],
+    "configuration": {
+      "title": "White Hat",
+      "properties": {
+        "whiteHat.enginePath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the engine entry (src/index.js). Defaults to the engine bundled alongside this extension."
+        }
+      }
+    }
+  }
+}
