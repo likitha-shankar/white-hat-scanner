@@ -1,5 +1,10 @@
 # White Hat
 
+[![CI](https://github.com/likitha-shankar/white-hat-scanner/actions/workflows/ci.yml/badge.svg)](https://github.com/likitha-shankar/white-hat-scanner/actions/workflows/ci.yml)
+[![Live Demo](https://img.shields.io/badge/live%20demo-online-2ea44f)](https://white-hat-demo.onrender.com/)
+
+**▶ Live demo: https://white-hat-demo.onrender.com/** — scan the bundled sample projects in your browser (free tier; first load may cold-start for a few seconds).
+
 Dual-mode security analysis. It **proves** findings instead of guessing, and stages exact fixes for review — it never edits your code without an explicit click.
 
 - **Mode 2 — white-box:** static analysis of a JS/TS codebase. Injection, authorization, JWT, race conditions, crypto, secrets. Each confirmed finding carries a runnable proof or a reproduction path, plus a before/after remediation diff.
