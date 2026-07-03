@@ -14,6 +14,10 @@ const execFileP = promisify(execFile);
 const { analyze, scanUrl } = require("../src/index");
 
 const PORT = process.env.PORT || 7777;
+// Bind localhost in local (unrestricted) mode so arbitrary file read / URL
+// scanning is never reachable from the network. Public hosting runs DEMO_SAFE=1,
+// which is path/SSRF-guarded, so it binds all interfaces to accept traffic.
+const HOST = process.env.HOST || (process.env.DEMO_SAFE === "1" ? "0.0.0.0" : "127.0.0.1");
 const FIX = (name) => path.join(__dirname, "..", "tests", "fixtures", name);
 const DEFAULT = FIX("vuln");
 
@@ -72,7 +76,7 @@ async function isPublicUrl(raw) {
 const SEV = { Critical: 0, High: 1, Medium: 2, Low: 3, Informational: 4 };
 const COLOR = { Critical: "#e51400", High: "#f7630c", Medium: "#d7a500", Low: "#3794ff", Informational: "#888" };
 
-const esc = (s) => String(s == null ? "" : s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 function proofHtml(f) {
   if (f.proof && f.proof.kind === "runnable")
@@ -112,7 +116,7 @@ function section(title, list, note) {
 function page(target, result, err) {
   let body;
   if (err) body = `<div class="err">Error: ${esc(err)}</div>`;
-  else if (!result) body = "";
+  else if (!result) body = `<p class="note">Paste a public GitHub repo (<code>github.com/owner/repo</code>) or pick a sample above, then hit Scan. No target is analyzed until you choose one.</p>`;
   else {
     const s = result.stats || {};
     const summary = s.mode === "url"
@@ -162,7 +166,8 @@ http.createServer(async (req, res) => {
   const raw = u.searchParams.get("target");
   const display = (raw && raw.trim()) || "";
   let result = null, err = null;
-  try {
+  // No target -> blank landing (form + samples). Only scan when the user picks one.
+  if (display) try {
     if (!SAFE) {
       // local: unrestricted
       const t = display || DEFAULT;
@@ -180,4 +185,4 @@ http.createServer(async (req, res) => {
   } catch (e) { err = "Scan failed: " + e.message; }
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(page(display, result, err));
-}).listen(PORT, () => console.log(`White Hat demo → http://localhost:${PORT}`));
+}).listen(PORT, HOST, () => console.log(`White Hat demo → http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}`));
