@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "White Hat — Surface Scanner",
+  "version": "0.1.0",
+  "description": "Passive Mode 1 web surface analysis in a persistent side panel. Reads what the browser already sees plus a targeted probe.",
+  "permissions": ["webRequest", "sidePanel", "tabs", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "White Hat — open side panel" },
+  "side_panel": { "default_path": "panel.html" },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["rules.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
