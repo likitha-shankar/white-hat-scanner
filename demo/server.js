@@ -107,56 +107,128 @@ function card(f, i) {
   </div>`;
 }
 
+const SAMPLES = [
+  ["vuln", "⚠️ Vulnerable demo app"],
+  ["frameworks", "NestJS / Next.js app"],
+  ["gqltrpc", "GraphQL / tRPC API"],
+  ["interproc", "Bug spread across files"],
+  ["clean", "✅ Secure app"],
+];
+
+const FINDS = [
+  ["💉", "SQL &amp; command injection", "Attackers reading your database or running commands on your server."],
+  ["🔑", "Hardcoded secrets", "API keys, tokens and passwords accidentally committed in the code."],
+  ["🚪", "Broken access control", "One user able to read or change another user's data (IDOR)."],
+  ["🔐", "Weak crypto &amp; JWT flaws", "Crackable password hashing and forgeable login tokens."],
+  ["📂", "Path traversal", "Tricking the server into reading files it shouldn't."],
+  ["⏱️", "Race conditions", "Double-spend and oversold-inventory bugs under load."],
+];
+
 function section(title, list, note) {
   const sorted = [...list].sort((a, b) => (SEV[a.severity] ?? 9) - (SEV[b.severity] ?? 9));
-  return `<h2>${title} (${list.length})</h2>${note ? `<p class="note">${note}</p>` : ""}` +
-    (sorted.length ? sorted.map(card).join("") : '<p class="note">None.</p>');
+  return `<h3 class="sec">${title} <span class="count">${list.length}</span></h3>${note ? `<p class="note">${note}</p>` : ""}` +
+    (sorted.length ? sorted.map(card).join("") : '<p class="note">None found.</p>');
+}
+
+function resultsHtml(target, result, err) {
+  if (err) return `<div class="err">${esc(err)}</div>`;
+  if (!result) return "";
+  const s = result.stats || {};
+  const scanned = s.mode === "url"
+    ? `Scanned <b>${esc(s.url)}</b> (${s.requests} requests)`
+    : `Scanned <b>${s.files}</b> files${target ? " in <b>" + esc(target) + "</b>" : ""}`;
+  const nConf = result.confirmed.length, nRev = result.unconfirmed.length;
+  const tone = nConf ? "bad" : "good";
+  const headline = nConf
+    ? `${nConf} confirmed ${nConf === 1 ? "vulnerability" : "vulnerabilities"} found`
+    : "No confirmed vulnerabilities";
+  return `<div class="banner ${tone}"><b>${headline}</b><span>${scanned} · ${nRev} to review</span></div>
+    ${section("Confirmed vulnerabilities", result.confirmed)}
+    ${section("Needs manual review", result.unconfirmed, "Matched a risky pattern, but the tool could not automatically prove it — a human should check these.")}
+    <h3 class="sec">Good practices found <span class="count">${(result.positives || []).length}</span></h3>
+    ${(result.positives || []).length
+      ? "<ul class='pos'>" + result.positives.map((p) => `<li>${esc(p.label)} — <code>${esc(p.rel)}</code></li>`).join("") + "</ul>"
+      : '<p class="note">None detected.</p>'}`;
 }
 
 function page(target, result, err) {
-  let body;
-  if (err) body = `<div class="err">Error: ${esc(err)}</div>`;
-  else if (!result) body = `<p class="note">Paste a public GitHub repo (<code>github.com/owner/repo</code>) or pick a sample above, then hit Scan. No target is analyzed until you choose one.</p>`;
-  else {
-    const s = result.stats || {};
-    const summary = s.mode === "url"
-      ? `Scanned <b>${esc(s.url)}</b> — ${s.requests} requests`
-      : `Scanned <b>${s.files}</b> files across <b>${s.units}</b> units`;
-    body =
-      `<div class="summary">${summary} · <b>${result.confirmed.length}</b> confirmed · <b>${result.unconfirmed.length}</b> unconfirmed</div>` +
-      section("✅ Confirmed", result.confirmed) +
-      section("❓ Unconfirmed", result.unconfirmed, "Detection matched but proof not automatically established — verify manually.") +
-      `<h2>👍 Positive Observations (${(result.positives || []).length})</h2>` +
-      ((result.positives || []).length
-        ? "<ul>" + result.positives.map((p) => `<li>${esc(p.label)} — <code>${esc(p.rel)}</code></li>`).join("") + "</ul>"
-        : '<p class="note">None.</p>');
-  }
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>White Hat</title><style>
-    body{font-family:system-ui,sans-serif;max-width:900px;margin:0 auto;padding:24px;color:#1f2328;background:#fafbfc}
-    h1{margin:0 0 4px} .tag{color:#666;margin-bottom:16px}
-    form{display:flex;gap:8px;margin-bottom:20px}
-    input{flex:1;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:14px}
-    button{padding:8px 16px;border:0;border-radius:6px;background:#0969da;color:#fff;cursor:pointer;font-size:14px}
-    .summary{background:#eef;padding:10px 14px;border-radius:6px;margin-bottom:12px}
-    .card{background:#fff;border:1px solid #e1e4e8;border-left:4px solid #888;border-radius:6px;padding:12px 14px;margin:10px 0}
-    .head{display:flex;align-items:center;gap:8px} .badge{color:#fff;font-size:11px;font-weight:700;padding:2px 7px;border-radius:10px}
+  const scanned = result || err;
+  const canUrl = SAFE ? ALLOW_URL : true;
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>White Hat — find security bugs in your code</title>
+  <meta name="description" content="Paste a GitHub repo and White Hat reads the code, traces how user input reaches dangerous operations, and proves the real vulnerabilities.">
+  <style>
+    :root{--fg:#1f2328;--mut:#57606a;--line:#d0d7de;--bg:#fff;--accent:#0969da}
+    *{box-sizing:border-box} body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:var(--fg);background:#fff;line-height:1.5}
+    a{color:var(--accent)} .wrap{max-width:880px;margin:0 auto;padding:0 20px}
+    nav{display:flex;align-items:center;gap:10px;padding:14px 0;border-bottom:1px solid var(--line)}
+    nav .brand{font-weight:700} nav .sp{flex:1} nav a{color:var(--mut);text-decoration:none;font-size:14px}
+    .hero{background:linear-gradient(180deg,#f6f8ff,#fff);border-bottom:1px solid var(--line);padding:44px 0 34px;text-align:center}
+    .hero h1{font-size:34px;line-height:1.15;margin:0 0 12px;letter-spacing:-.5px}
+    .hero p.sub{font-size:17px;color:var(--mut);max-width:620px;margin:0 auto 22px}
+    form{display:flex;gap:8px;max-width:560px;margin:0 auto}
+    input{flex:1;padding:12px 14px;border:1px solid var(--line);border-radius:8px;font-size:15px}
+    input:focus{outline:2px solid var(--accent);border-color:var(--accent)}
+    button{padding:12px 20px;border:0;border-radius:8px;background:var(--accent);color:#fff;font-size:15px;font-weight:600;cursor:pointer}
+    button:hover{background:#0860ca}
+    .chips{margin:16px 0 0;font-size:13px;color:var(--mut)} .chips a{display:inline-block;margin:4px;padding:5px 11px;background:#fff;border:1px solid var(--line);border-radius:20px;text-decoration:none;color:var(--fg)}
+    .chips a:hover{border-color:var(--accent)}
+    section{padding:36px 0} h2{font-size:22px;margin:0 0 18px;text-align:center}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+    .f{border:1px solid var(--line);border-radius:10px;padding:16px} .f .ic{font-size:22px} .f b{display:block;margin:6px 0 3px} .f span{color:var(--mut);font-size:14px}
+    .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;counter-reset:s}
+    .step{border:1px solid var(--line);border-radius:10px;padding:16px;position:relative}
+    .step:before{counter-increment:s;content:counter(s);display:inline-flex;width:26px;height:26px;align-items:center;justify-content:center;background:var(--accent);color:#fff;border-radius:50%;font-size:13px;font-weight:700;margin-bottom:8px}
+    .step b{display:block;margin-bottom:4px} .step span{color:var(--mut);font-size:14px}
+    .results{border-top:1px solid var(--line);background:#fafbfc} .results .wrap{padding:24px 20px}
+    .banner{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 16px;border-radius:10px;margin-bottom:18px}
+    .banner.bad{background:#ffebe9;border:1px solid #ff818266} .banner.good{background:#dafbe1;border:1px solid #4ac26b66}
+    .banner span{color:var(--mut);font-size:14px}
+    h3.sec{font-size:16px;margin:22px 0 8px;border-bottom:1px solid var(--line);padding-bottom:6px}
+    .count{background:#eaeef2;color:var(--mut);border-radius:20px;padding:1px 9px;font-size:13px;margin-left:4px}
+    .card{background:#fff;border:1px solid var(--line);border-left:4px solid #888;border-radius:8px;padding:12px 14px;margin:10px 0}
+    .head{display:flex;align-items:center;gap:8px;flex-wrap:wrap} .badge{color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px}
     .known{background:#ffd33d;color:#000;font-size:10px;padding:1px 6px;border-radius:8px}
-    .loc{color:#666;font-family:ui-monospace,monospace;font-size:12px;margin:4px 0} .sum{font-weight:600;margin:2px 0}
-    .impact{color:#555;margin:4px 0;font-size:13px} .proof{font-size:12px;color:#444;margin:6px 0}
+    .loc{color:var(--mut);font-family:ui-monospace,monospace;font-size:12px;margin:4px 0} .sum{font-weight:600;margin:2px 0}
+    .impact{color:#444;margin:4px 0;font-size:13px} .proof{font-size:12px;color:#555;margin:6px 0}
     pre{background:#f6f8fa;padding:8px;border-radius:6px;overflow:auto;font-size:12px;white-space:pre-wrap}
-    pre.diff{border:1px solid #e1e4e8} .del{color:#b31d28;display:block} .add{color:#22863a;display:block}
-    .note{color:#888} .err{background:#ffe0e0;padding:12px;border-radius:6px;color:#900}
-    code{background:#eee;padding:1px 5px;border-radius:4px} ol{margin:4px 0}
-    .presets{margin:0 0 16px;color:#666} .presets a{margin-right:6px}
+    pre.diff{border:1px solid var(--line)} .del{color:#b31d28;display:block} .add{color:#22863a;display:block}
+    .note{color:var(--mut)} .err{background:#ffebe9;border:1px solid #ff8182;padding:14px;border-radius:8px;color:#8b1a10}
+    code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px} ul.pos li{margin:3px 0}
+    footer{border-top:1px solid var(--line);padding:24px 0;color:var(--mut);font-size:13px;text-align:center}
   </style></head><body>
-    <h1>🛡️ White Hat</h1><div class="tag">${SAFE
-      ? `Scan a <b>public GitHub repo</b> (Mode 2)${ALLOW_URL ? " or a <b>public URL</b> (Mode 1)" : ""}, or try a sample below.`
-      : "Enter a folder path (Mode 2) or an https:// URL (Mode 1)."}</div>
-    <form method="get"><input name="target" value="${esc(target)}" placeholder="${SAFE
-      ? `github.com/owner/repo${ALLOW_URL ? " — or https:// URL" : ""}`
-      : "folder path or https:// URL"}"><button>Scan</button></form>
-    <div class="presets">Samples: ${["vuln", "gqltrpc", "interproc", "frameworks", "clean"].map((k) => `<a href="/?target=${k}">${k}</a>`).join(" · ")}</div>
-    ${body}
+  <div class="wrap"><nav><span class="brand">🛡️ White Hat</span><span class="sp"></span>
+    <a href="https://github.com/likitha-shankar/white-hat-scanner">GitHub ↗</a></nav></div>
+
+  <header class="hero"><div class="wrap">
+    <h1>Find security bugs in your code<br>before attackers do</h1>
+    <p class="sub">White Hat reads your source code, traces how user input flows into dangerous operations, and <b>proves</b> the real vulnerabilities — with the exact fix. Paste a public GitHub repo to try it.</p>
+    <form method="get" action="/">
+      <input name="target" value="${esc(target)}" autofocus placeholder="${canUrl ? "github.com/owner/repo  or  https://a-website.com" : "https://github.com/owner/repo"}">
+      <button>Scan${SAFE ? "" : ""}</button>
+    </form>
+    <div class="chips">Or try a sample: ${SAMPLES.map(([k, label]) => `<a href="/?target=${k}#results">${label}</a>`).join("")}</div>
+    ${canUrl ? '<p class="note" style="font-size:12px;margin-top:12px">Tip: paste a live website URL to check its security headers, cookies and exposed files.</p>' : ""}
+  </div></header>
+
+  ${scanned ? `<div class="results"><div class="wrap" id="results">${resultsHtml(target, result, err)}</div></div>` : ""}
+
+  <div class="wrap">
+  <section><h2>What it checks for</h2><div class="grid">
+    ${FINDS.map(([ic, t, d]) => `<div class="f"><div class="ic">${ic}</div><b>${t}</b><span>${d}</span></div>`).join("")}
+  </div></section>
+
+  <section><h2>How it works</h2><div class="steps">
+    <div class="step"><b>You paste a repo</b><span>A public GitHub URL, or one of the sample apps above. Nothing is stored.</span></div>
+    <div class="step"><b>It traces the data</b><span>The engine follows untrusted input across functions and files to every risky operation.</span></div>
+    <div class="step"><b>You get proven bugs</b><span>Real vulnerabilities, ranked by severity, each with a plain-English impact and the exact fix.</span></div>
+  </div></section>
+  </div>
+
+  <footer><div class="wrap">White Hat · open-source security scanner ·
+    <a href="https://github.com/likitha-shankar/white-hat-scanner">source on GitHub</a> ·
+    read-only, nothing you scan is stored</div></footer>
   </body></html>`;
 }
 
