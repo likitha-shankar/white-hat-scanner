@@ -1,0 +1,14 @@
+# Render.com blueprint — free hosting for the live demo.
+# In Render: New > Blueprint > connect this repo. No credit card on the free plan.
+# DEMO_SAFE=1 restricts scanning to the bundled sample projects (no arbitrary
+# path/URL scanning), so the public instance is safe.
+services:
+  - type: web
+    name: white-hat-demo
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node demo/server.js
+    envVars:
+      - key: DEMO_SAFE
+        value: "1"
