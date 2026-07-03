@@ -1,8 +1,15 @@
 # Hosting the live demo (free)
 
-The web demo (`demo/server.js`) is a small Node HTTP server. For a **public** deployment
-run it with `DEMO_SAFE=1`, which restricts scanning to the bundled sample projects — no
-arbitrary filesystem paths and no arbitrary URLs, so there is no file-read or SSRF exposure.
+The web demo (`demo/server.js`) is a small Node HTTP server. Run a **public** deployment with
+`DEMO_SAFE=1`. In safe mode users can:
+
+- scan a **public GitHub repo** (Mode 2) — the server shallow-clones it, scans, and deletes it;
+- run the bundled **sample projects**.
+
+Safe mode blocks arbitrary filesystem paths (no host file read). **Mode-1 URL scanning is off by
+default** (hosting an open URL scanner invites abuse — probing third parties from your server's
+IP). To enable it, set `DEMO_ALLOW_URL=1`; even then it is SSRF-guarded to public hosts only
+(localhost / private / link-local / cloud-metadata addresses are refused).
 
 ## Option A — Render (recommended, free, no credit card)
 
