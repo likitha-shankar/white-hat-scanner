@@ -4,21 +4,70 @@
 //   node demo/server.js   ->   http://localhost:7777
 const http = require("http");
 const path = require("path");
+const os = require("os");
+const fs = require("fs");
+const net = require("net");
+const dns = require("dns").promises;
+const { execFile } = require("child_process");
+const { promisify } = require("util");
+const execFileP = promisify(execFile);
 const { analyze, scanUrl } = require("../src/index");
 
 const PORT = process.env.PORT || 7777;
 const FIX = (name) => path.join(__dirname, "..", "tests", "fixtures", name);
 const DEFAULT = FIX("vuln");
 
-// DEMO_SAFE=1 (for public hosting): restrict scanning to the bundled fixtures
-// only — no arbitrary filesystem paths, no arbitrary URLs (no SSRF / file read).
+// DEMO_SAFE=1 (public hosting): no arbitrary filesystem paths. Users provide
+// source via a PUBLIC GitHub repo (shallow-cloned, scanned, deleted). Mode-1 URL
+// scanning is off unless DEMO_ALLOW_URL=1 (open-scanner abuse risk), and even
+// then it is SSRF-guarded to public hosts only.
 const SAFE = process.env.DEMO_SAFE === "1";
+const ALLOW_URL = process.env.DEMO_ALLOW_URL === "1";
 const ALLOWED = { vuln: FIX("vuln"), gqltrpc: FIX("gqltrpc"), interproc: FIX("interproc"), frameworks: FIX("frameworks"), clean: FIX("clean") };
+const memPath = () => path.join(os.tmpdir(), "wh-demo-mem.md");
 
 function resolveTarget(raw) {
   if (!SAFE) return (raw && raw.trim()) || DEFAULT;
   const key = (raw || "vuln").replace(/[^a-z]/gi, "").toLowerCase();
   return ALLOWED[key] || ALLOWED.vuln;
+}
+
+const isGithubRepo = (raw) => /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+?(\.git)?\/?$/.test((raw || "").trim());
+
+// Shallow-clone a public GitHub repo, scan it, then delete it. execFile (no
+// shell) + a validated github.com URL means no command injection.
+async function scanGithub(repoUrl) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wh-clone-"));
+  try {
+    await execFileP("git", ["clone", "--depth", "1", "--single-branch", "--quiet", repoUrl.replace(/\/$/, ""), dir], { timeout: 30000 });
+    return analyze(dir, memPath());
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// SSRF guard: allow only public http(s) hosts (block localhost/private/metadata).
+function isPrivateIp(ip) {
+  if (net.isIPv4(ip)) {
+    const p = ip.split(".").map(Number);
+    return p[0] === 0 || p[0] === 10 || p[0] === 127 ||
+      (p[0] === 169 && p[1] === 254) || (p[0] === 172 && p[1] >= 16 && p[1] <= 31) ||
+      (p[0] === 192 && p[1] === 168) || (p[0] === 100 && p[1] >= 64 && p[1] <= 127);
+  }
+  const l = ip.toLowerCase();
+  if (l === "::1" || l === "::") return true;
+  if (l.startsWith("::ffff:")) return isPrivateIp(l.split(":").pop());
+  return l.startsWith("fc") || l.startsWith("fd") || l.startsWith("fe80");
+}
+async function isPublicUrl(raw) {
+  let u;
+  try { u = new URL(raw); } catch { return false; }
+  if (!/^https?:$/.test(u.protocol)) return false;
+  if (/^(localhost|.*\.local|.*\.internal)$/i.test(u.hostname)) return false;
+  try {
+    const addrs = await dns.lookup(u.hostname, { all: true });
+    return addrs.length > 0 && addrs.every((a) => !isPrivateIp(a.address));
+  } catch { return false; }
 }
 const SEV = { Critical: 0, High: 1, Medium: 2, Low: 3, Informational: 4 };
 const COLOR = { Critical: "#e51400", High: "#f7630c", Medium: "#d7a500", Low: "#3794ff", Informational: "#888" };
@@ -97,10 +146,12 @@ function page(target, result, err) {
     .presets{margin:0 0 16px;color:#666} .presets a{margin-right:6px}
   </style></head><body>
     <h1>🛡️ White Hat</h1><div class="tag">${SAFE
-      ? "Dual-mode security analysis — public demo, restricted to the bundled sample projects"
-      : "Dual-mode security analysis — enter a folder path (Mode 2) or an https:// URL (Mode 1)"}</div>
-    ${SAFE ? "" : `<form method="get"><input name="target" value="${esc(target)}" placeholder="folder path or https:// URL"><button>Scan</button></form>`}
-    <div class="presets">Try: ${["vuln", "gqltrpc", "interproc", "frameworks", "clean"].map((k) => `<a href="/?target=${k}">${k}</a>`).join(" · ")}</div>
+      ? `Scan a <b>public GitHub repo</b> (Mode 2)${ALLOW_URL ? " or a <b>public URL</b> (Mode 1)" : ""}, or try a sample below.`
+      : "Enter a folder path (Mode 2) or an https:// URL (Mode 1)."}</div>
+    <form method="get"><input name="target" value="${esc(target)}" placeholder="${SAFE
+      ? `github.com/owner/repo${ALLOW_URL ? " — or https:// URL" : ""}`
+      : "folder path or https:// URL"}"><button>Scan</button></form>
+    <div class="presets">Samples: ${["vuln", "gqltrpc", "interproc", "frameworks", "clean"].map((k) => `<a href="/?target=${k}">${k}</a>`).join(" · ")}</div>
     ${body}
   </body></html>`;
 }
@@ -108,13 +159,25 @@ function page(target, result, err) {
 http.createServer(async (req, res) => {
   if (req.url === "/favicon.ico") { res.writeHead(204); return res.end(); }
   const u = new URL(req.url, `http://localhost:${PORT}`);
-  const target = resolveTarget(u.searchParams.get("target"));
+  const raw = u.searchParams.get("target");
+  const display = (raw && raw.trim()) || "";
   let result = null, err = null;
   try {
-    if (!SAFE && /^https?:\/\//i.test(target)) { result = await scanUrl(target); }
-    else { result = analyze(target, path.join(require("os").tmpdir(), "wh-demo-mem.md")); }
+    if (!SAFE) {
+      // local: unrestricted
+      const t = display || DEFAULT;
+      result = /^https?:\/\//i.test(t) ? await scanUrl(t) : analyze(t, memPath());
+    } else if (isGithubRepo(raw)) {
+      result = await scanGithub(display); // Mode 2 on a public repo
+    } else if (/^https?:\/\//i.test(display)) {
+      if (!ALLOW_URL) err = "URL scanning is disabled on this public demo (open-scanner abuse risk). Run it locally, or the operator can set DEMO_ALLOW_URL=1.";
+      else if (!(await isPublicUrl(display))) err = "Blocked: only public http(s) hosts are allowed (no localhost / private / metadata addresses).";
+      else result = await scanUrl(display);
+    } else {
+      result = analyze(resolveTarget(raw), memPath()); // bundled fixture
+    }
     if (result && result.error) { err = result.error; result = null; }
-  } catch (e) { err = e.message; }
+  } catch (e) { err = "Scan failed: " + e.message; }
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-  res.end(page(target, result, err));
+  res.end(page(display, result, err));
 }).listen(PORT, () => console.log(`White Hat demo → http://localhost:${PORT}`));
