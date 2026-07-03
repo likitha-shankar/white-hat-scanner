@@ -7,7 +7,19 @@ const path = require("path");
 const { analyze, scanUrl } = require("../src/index");
 
 const PORT = process.env.PORT || 7777;
-const DEFAULT = path.join(__dirname, "..", "tests", "fixtures", "vuln");
+const FIX = (name) => path.join(__dirname, "..", "tests", "fixtures", name);
+const DEFAULT = FIX("vuln");
+
+// DEMO_SAFE=1 (for public hosting): restrict scanning to the bundled fixtures
+// only — no arbitrary filesystem paths, no arbitrary URLs (no SSRF / file read).
+const SAFE = process.env.DEMO_SAFE === "1";
+const ALLOWED = { vuln: FIX("vuln"), gqltrpc: FIX("gqltrpc"), interproc: FIX("interproc"), frameworks: FIX("frameworks"), clean: FIX("clean") };
+
+function resolveTarget(raw) {
+  if (!SAFE) return (raw && raw.trim()) || DEFAULT;
+  const key = (raw || "vuln").replace(/[^a-z]/gi, "").toLowerCase();
+  return ALLOWED[key] || ALLOWED.vuln;
+}
 const SEV = { Critical: 0, High: 1, Medium: 2, Low: 3, Informational: 4 };
 const COLOR = { Critical: "#e51400", High: "#f7630c", Medium: "#d7a500", Low: "#3794ff", Informational: "#888" };
 
@@ -82,9 +94,13 @@ function page(target, result, err) {
     pre.diff{border:1px solid #e1e4e8} .del{color:#b31d28;display:block} .add{color:#22863a;display:block}
     .note{color:#888} .err{background:#ffe0e0;padding:12px;border-radius:6px;color:#900}
     code{background:#eee;padding:1px 5px;border-radius:4px} ol{margin:4px 0}
+    .presets{margin:0 0 16px;color:#666} .presets a{margin-right:6px}
   </style></head><body>
-    <h1>🛡️ White Hat</h1><div class="tag">Dual-mode security analysis — enter a folder path (Mode 2) or an https:// URL (Mode 1)</div>
-    <form method="get"><input name="target" value="${esc(target)}" placeholder="folder path or https:// URL"><button>Scan</button></form>
+    <h1>🛡️ White Hat</h1><div class="tag">${SAFE
+      ? "Dual-mode security analysis — public demo, restricted to the bundled sample projects"
+      : "Dual-mode security analysis — enter a folder path (Mode 2) or an https:// URL (Mode 1)"}</div>
+    ${SAFE ? "" : `<form method="get"><input name="target" value="${esc(target)}" placeholder="folder path or https:// URL"><button>Scan</button></form>`}
+    <div class="presets">Try: ${["vuln", "gqltrpc", "interproc", "frameworks", "clean"].map((k) => `<a href="/?target=${k}">${k}</a>`).join(" · ")}</div>
     ${body}
   </body></html>`;
 }
@@ -92,10 +108,10 @@ function page(target, result, err) {
 http.createServer(async (req, res) => {
   if (req.url === "/favicon.ico") { res.writeHead(204); return res.end(); }
   const u = new URL(req.url, `http://localhost:${PORT}`);
-  const target = (u.searchParams.get("target") || "").trim() || DEFAULT;
+  const target = resolveTarget(u.searchParams.get("target"));
   let result = null, err = null;
   try {
-    if (/^https?:\/\//i.test(target)) { result = await scanUrl(target); }
+    if (!SAFE && /^https?:\/\//i.test(target)) { result = await scanUrl(target); }
     else { result = analyze(target, path.join(require("os").tmpdir(), "wh-demo-mem.md")); }
     if (result && result.error) { err = result.error; result = null; }
   } catch (e) { err = e.message; }
